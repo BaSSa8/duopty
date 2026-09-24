@@ -1,5 +1,7 @@
 # DuoPty — Intelligent Duplicate File Scanner & Remover
 
+[![Tests](https://github.com/BaSSa8/duopty/actions/workflows/tests.yml/badge.svg)](https://github.com/BaSSa8/duopty/actions/workflows/tests.yml)
+
 **DuoPty** is a high-performance Python desktop application designed to accurately identify and safely remove duplicate files across one or multiple directories, or perform cross-folder comparisons (e.g. Directory A vs Directory B).
 
 ---
