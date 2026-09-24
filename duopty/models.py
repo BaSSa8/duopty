@@ -65,6 +65,8 @@ class ScanConfig:
     ignore_hidden: bool = True
     follow_symlinks: bool = False
     sample_size: int = 4096
+    use_cache: bool = False
+    cache_path: Optional[str] = None
 
 
 @dataclass
@@ -90,3 +92,5 @@ class ScanStats:
     duplicates_count: int = 0
     space_reclaimable: int = 0
     scan_duration: float = 0.0
+    read_errors: int = 0
+    error_samples: List[str] = field(default_factory=list)

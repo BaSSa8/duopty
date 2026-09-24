@@ -3,7 +3,7 @@ import tempfile
 import shutil
 import unittest
 
-from duopty.models import ScanConfig, ScanProgress
+from duopty.models import ScanConfig, ScanProgress, FileInfo
 from duopty.scanner import DuplicateScanner
 
 
@@ -156,6 +156,59 @@ class TestDuplicateScanner(unittest.TestCase):
         self.assertIn(f_jpg1, paths)
         self.assertIn(f_jpg2, paths)
         self.assertNotIn(f_txt1, paths)
+
+    def test_hash_cache_hit_avoids_recompute(self):
+        """A second scan with use_cache=True should reuse hashes from the first scan."""
+        content = b"Cached duplicate content." * 100
+        f1 = os.path.join(self.dir_a, "cache1.bin")
+        f2 = os.path.join(self.dir_a, "cache2.bin")
+        with open(f1, "wb") as f: f.write(content)
+        with open(f2, "wb") as f: f.write(content)
+
+        cache_path = os.path.join(self.test_dir, "hash_cache.json")
+        config = ScanConfig(folders=[self.dir_a], depth="strict", use_cache=True, cache_path=cache_path)
+
+        first = DuplicateScanner(config)
+        groups1 = first.scan()
+        self.assertEqual(len(groups1), 1)
+        self.assertTrue(os.path.exists(cache_path))
+
+        second = DuplicateScanner(config)
+        groups2 = second.scan()
+        self.assertEqual(len(groups2), 1)
+        paths = {f.path for f in groups2[0].files}
+        self.assertIn(f1, paths)
+        self.assertIn(f2, paths)
+
+    def test_unreadable_file_increments_error_stats(self):
+        """Hash computation on a file that can't be opened should be recorded, not silently dropped."""
+        config = ScanConfig(folders=[self.dir_a])
+        scanner = DuplicateScanner(config)
+        ghost = FileInfo(path=os.path.join(self.dir_a, "does_not_exist.bin"), size=10, mtime=0.0)
+
+        result = scanner._compute_full_hash(ghost)
+
+        self.assertIsNone(result)
+        self.assertEqual(scanner.stats.read_errors, 1)
+        self.assertIn(ghost.path, scanner.stats.error_samples)
+
+    def test_symlink_cycle_does_not_hang(self):
+        """A directory symlink pointing back at an ancestor must not cause an infinite walk."""
+        loop_link = os.path.join(self.dir_a, "loop_back")
+        try:
+            os.symlink(self.dir_a, loop_link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("Creating symlinks is not permitted in this environment")
+
+        with open(os.path.join(self.dir_a, "f1.txt"), "wb") as f: f.write(b"same content")
+        with open(os.path.join(self.dir_a, "f2.txt"), "wb") as f: f.write(b"same content")
+
+        config = ScanConfig(folders=[self.dir_a], depth="strict", follow_symlinks=True)
+        scanner = DuplicateScanner(config)
+
+        groups = scanner.scan()
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].count, 2)
 
 
 if __name__ == "__main__":

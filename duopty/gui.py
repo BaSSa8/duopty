@@ -171,6 +171,7 @@ class DuoPtyGUI:
         self.include_exts_var = tk.StringVar(value="")
         self.exclude_exts_var = tk.StringVar(value="")
         self.recycle_bin_var = tk.BooleanVar(value=True)
+        self.use_cache_var = tk.BooleanVar(value=True)
 
         self.scanner_thread: Optional[threading.Thread] = None
         self.scanner: Optional[DuplicateScanner] = None
@@ -355,6 +356,14 @@ class DuoPtyGUI:
         ttk.Label(r2, text="Include Exts (e.g. .jpg, .png):", style="Surface.TLabel").pack(side="left", padx=(0, 6))
         ext_entry = ttk.Entry(r2, textvariable=self.include_exts_var, width=18)
         ext_entry.pack(side="left", padx=(0, 12))
+
+        ttk.Checkbutton(
+            r2,
+            text="Use hash cache (faster rescans)",
+            variable=self.use_cache_var
+        ).pack(side="left", padx=(0, 8))
+
+        ttk.Button(r2, text="Clear Cache", command=self._clear_hash_cache).pack(side="left")
 
     def _build_control_panel(self, parent: ttk.LabelFrame):
         """Builds the progress bar, scan start/stop buttons, and status labels."""
@@ -559,6 +568,18 @@ class DuoPtyGUI:
         ttk.Button(btn_box, text="Remove Selected", command=remove_dir).pack(side="left")
         ttk.Button(btn_box, text="Done", command=dlg.destroy).pack(side="right")
 
+    def _clear_hash_cache(self):
+        """Discards the persisted hash cache used to speed up rescans."""
+        from duopty.cache import HashCache
+        cache = HashCache()
+        entries = len(cache)
+        cache.clear()
+        messagebox.showinfo(
+            "Cache Cleared",
+            f"Removed {entries} cached hash entr{'y' if entries == 1 else 'ies'}.",
+            parent=self.root
+        )
+
     def _get_min_size_bytes(self) -> int:
         """Parses user min size combobox selection."""
         val = self.min_size_var.get()
@@ -629,7 +650,8 @@ class DuoPtyGUI:
             min_size=self._get_min_size_bytes(),
             include_exts=self._parse_extensions(self.include_exts_var.get()),
             exclude_exts=self._parse_extensions(self.exclude_exts_var.get()),
-            ignore_hidden=self.ignore_hidden_var.get()
+            ignore_hidden=self.ignore_hidden_var.get(),
+            use_cache=self.use_cache_var.get()
         )
 
         # Clear existing tree
@@ -715,14 +737,23 @@ class DuoPtyGUI:
         self._update_stats_display()
 
         self.phase_label.configure(text=f"Scan Finished! Found {len(groups)} duplicate groups.")
-        self.detail_label.configure(
-            text=f"Discovered {self.scanner.stats.total_files_discovered} files in {self.scanner.stats.scan_duration:.2f}s."
-        )
+        detail_text = f"Discovered {self.scanner.stats.total_files_discovered} files in {self.scanner.stats.scan_duration:.2f}s."
+        read_errors = self.scanner.stats.read_errors
+        if read_errors:
+            detail_text += f" | {read_errors} file(s) skipped (could not be read)."
+        self.detail_label.configure(text=detail_text)
 
         if not groups:
-            messagebox.showinfo(
-                "Scan Completed",
-                "No duplicate files were found matching your criteria.",
+            msg = "No duplicate files were found matching your criteria."
+            if read_errors:
+                msg += f"\n\n{read_errors} file(s) could not be read (permission denied or in use) and were excluded from the scan."
+            messagebox.showinfo("Scan Completed", msg, parent=self.root)
+        elif read_errors:
+            sample_lines = "\n".join(self.scanner.stats.error_samples[:5])
+            more = f"\n... and {read_errors - 5} more." if read_errors > 5 else ""
+            messagebox.showwarning(
+                "Scan Completed with Warnings",
+                f"{read_errors} file(s) could not be read (permission denied or in use) and were excluded:\n\n{sample_lines}{more}",
                 parent=self.root
             )
 

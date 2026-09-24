@@ -6,6 +6,9 @@ from typing import List, Dict, Tuple, Optional, Callable, Set
 from collections import defaultdict
 
 from duopty.models import FileInfo, DuplicateGroup, ScanConfig, ScanProgress, ScanStats
+from duopty.cache import HashCache
+
+MAX_ERROR_SAMPLES = 20
 
 
 class DuplicateScanner:
@@ -27,6 +30,13 @@ class DuplicateScanner:
         self._is_cancelled = False
         self._is_paused = False
         self.stats = ScanStats()
+        self.cache: Optional[HashCache] = HashCache(config.cache_path) if config.use_cache else None
+
+    def _record_error(self, path: str):
+        """Tracks a file that could not be read, so results can note it instead of silently dropping it."""
+        self.stats.read_errors += 1
+        if len(self.stats.error_samples) < MAX_ERROR_SAMPLES:
+            self.stats.error_samples.append(path)
 
     def cancel(self):
         """Signals the scanner to stop immediately."""
@@ -77,6 +87,13 @@ class DuplicateScanner:
         Executes the 4-stage progressive duplicate detection pipeline.
         Returns a list of DuplicateGroup objects.
         """
+        try:
+            return self._scan_impl()
+        finally:
+            if self.cache is not None:
+                self.cache.save()
+
+    def _scan_impl(self) -> List[DuplicateGroup]:
         start_time = time.time()
         self._is_cancelled = False
         self._is_paused = False
@@ -90,6 +107,17 @@ class DuplicateScanner:
         discovered_files: List[FileInfo] = []
         total_discovered_size = 0
 
+        # When following symlinks, track real directory paths already walked so a
+        # symlink/junction cycle (a link pointing back into its own ancestry) can't
+        # cause an infinite walk.
+        visited_real_dirs: Set[str] = set()
+        if self.config.follow_symlinks:
+            for folder in self.config.folders:
+                try:
+                    visited_real_dirs.add(os.path.realpath(folder))
+                except OSError:
+                    pass
+
         for dir_idx, folder in enumerate(self.config.folders):
             if not os.path.isdir(folder):
                 continue
@@ -102,6 +130,19 @@ class DuplicateScanner:
                 # Filter hidden directories in-place to prevent traversing them
                 if self.config.ignore_hidden:
                     dirs[:] = [d for d in dirs if not d.startswith('.')]
+
+                if self.config.follow_symlinks:
+                    kept_dirs = []
+                    for d in dirs:
+                        try:
+                            real_d = os.path.realpath(os.path.join(root, d))
+                        except OSError:
+                            continue
+                        if real_d in visited_real_dirs:
+                            continue
+                        visited_real_dirs.add(real_d)
+                        kept_dirs.append(d)
+                    dirs[:] = kept_dirs
 
                 for filename in files:
                     if self._is_cancelled:
@@ -118,6 +159,7 @@ class DuplicateScanner:
                     try:
                         st = os.stat(full_path)
                     except (OSError, PermissionError):
+                        self._record_error(full_path)
                         continue
 
                     # Filter by min/max size
@@ -337,6 +379,11 @@ class DuplicateScanner:
         Reads 3 small blocks: Head (first 4KB), Mid (middle 4KB), Tail (last 4KB).
         Returns the hexadecimal digest of the sample.
         """
+        if self.cache is not None:
+            cached = self.cache.get(file_info.path, file_info.size, file_info.mtime, self.config.hash_algo)
+            if cached and cached.get("partial_hash"):
+                return cached["partial_hash"]
+
         size = file_info.size
         hasher = hashlib.new(self.config.hash_algo)
 
@@ -354,12 +401,22 @@ class DuplicateScanner:
                     # 3. Tail
                     f.seek(size - self.SAMPLE_BLOCK_SIZE)
                     hasher.update(f.read(self.SAMPLE_BLOCK_SIZE))
-            return hasher.hexdigest()
         except (OSError, PermissionError):
+            self._record_error(file_info.path)
             return None
+
+        digest = hasher.hexdigest()
+        if self.cache is not None:
+            self.cache.put(file_info.path, size, file_info.mtime, self.config.hash_algo, partial_hash=digest)
+        return digest
 
     def _compute_full_hash(self, file_info: FileInfo) -> Optional[str]:
         """Computes complete cryptographic hash by streaming chunks."""
+        if self.cache is not None:
+            cached = self.cache.get(file_info.path, file_info.size, file_info.mtime, self.config.hash_algo)
+            if cached and cached.get("full_hash"):
+                return cached["full_hash"]
+
         hasher = hashlib.new(self.config.hash_algo)
         try:
             with open(file_info.path, "rb") as f:
@@ -371,9 +428,14 @@ class DuplicateScanner:
                     if not chunk:
                         break
                     hasher.update(chunk)
-            return hasher.hexdigest()
         except (OSError, PermissionError):
+            self._record_error(file_info.path)
             return None
+
+        digest = hasher.hexdigest()
+        if self.cache is not None:
+            self.cache.put(file_info.path, file_info.size, file_info.mtime, self.config.hash_algo, full_hash=digest)
+        return digest
 
     def _compare_files_byte_by_byte(self, path1: str, path2: str) -> bool:
         """Compares two files chunk-by-chunk for 100% exact binary equality."""
