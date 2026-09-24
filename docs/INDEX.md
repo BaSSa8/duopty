@@ -28,6 +28,6 @@ Welcome to the DuoPty technical documentation repository. This directory archive
 
 ---
 
-## 🤖 Claude Code Context
+## 🤖 Coding Agent Context
 
-- See **[`../CLAUDE.md`](../CLAUDE.md)** for developer instructions, common commands, and project conventions tailored for Claude Code and coding agents.
+- See **[`../AGENTS.md`](../AGENTS.md)** for developer instructions, common commands, and project conventions tailored for Claude Code and coding agents.

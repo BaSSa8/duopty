@@ -1,4 +1,4 @@
-# CLAUDE.md — DuoPty Project Guidelines for Claude Code
+# AGENTS.md — DuoPty Project Guidelines for Claude Code and Other Coding Agents
 
 ## Project Overview
 **DuoPty** is a high-performance Python desktop application for Windows 10/11 that finds and safely removes duplicate files across single or multiple directories, and supports cross-directory comparisons (Directory A vs Directory B).
@@ -25,7 +25,7 @@ python main.py "C:\Path\To\Folder1" "D:\Path\To\Folder2" --mode cross_dir
 
 ### Run Tests
 ```bash
-# Run all unit and integration tests (15 tests)
+# Run all unit and integration tests
 python -m unittest discover tests
 
 # Run specific test modules
@@ -57,16 +57,19 @@ Heavy I/O and hashing are only executed when strictly necessary:
 duopty/
 ├── duopty/
 │   ├── models.py       # FileInfo, DuplicateGroup, ScanConfig, ScanProgress, ScanStats
-│   ├── scanner.py      # ScanEngine with 4-stage progressive pipeline & cancel/pause
+│   ├── scanner.py      # DuplicateScanner with 4-stage progressive pipeline & cancel/pause
+│   ├── cache.py        # HashCache: persists hashes across scans, keyed by path/size/mtime
 │   ├── deleter.py      # FileDeleter, DeleteResult, Recycle Bin & permanent deletion
-│   ├── gui.py          # DuoPtyApp & DeletionProgressDialog (Tkinter GUI)
+│   ├── gui.py          # DuoPtyGUI & DeletionProgressDialog (Tkinter GUI)
 │   ├── theme.py        # Modern dark palette, ttk styles, DPI awareness
 │   └── utils.py        # File size formatting and helpers
 ├── tests/
-│   ├── test_scanner.py       # Engine tests for all 4 stages & cross-dir mode
+│   ├── test_scanner.py       # Engine tests for all 4 stages, cross-dir mode, cache, symlink guard
+│   ├── test_cache.py         # HashCache persistence and invalidation tests
 │   ├── test_deleter.py       # Deletion tests, read-only permissions, cancellation
 │   └── test_gui_headless.py  # Headless Tkinter tests for scan & deletion workflows
 ├── docs/                     # Implementation plans, walkthroughs, and architecture docs
+├── .github/workflows/        # CI (runs the test suite on windows-latest)
 ├── main.py                   # Application entrypoint
 ├── run.bat                   # Windows batch file launcher
 └── README.md                 # User documentation

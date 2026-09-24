@@ -90,8 +90,29 @@ python -m unittest discover tests
 
 ---
 
+## Project Structure
+
+```
+duopty/
+├── duopty/
+│   ├── models.py        # FileInfo, DuplicateGroup, ScanConfig, ScanProgress, ScanStats
+│   ├── scanner.py        # DuplicateScanner with 4-stage progressive pipeline & cancel/pause
+│   ├── cache.py          # HashCache: persists hashes across scans, keyed by path/size/mtime
+│   ├── deleter.py        # FileDeleter, DeleteResult, Recycle Bin & permanent deletion
+│   ├── gui.py            # DuoPtyGUI & DeletionProgressDialog (Tkinter GUI)
+│   ├── theme.py          # Modern dark palette, ttk styles, DPI awareness
+│   └── utils.py          # File size formatting and helpers
+├── tests/                 # Unit and integration test suite
+├── docs/                  # Implementation plans, walkthroughs, and architecture docs
+├── .github/workflows/     # CI (runs the test suite on windows-latest)
+├── main.py                # Application entrypoint
+└── run.bat                # Windows batch file launcher
+```
+
+---
+
 ## Documentation & Developer Guide
 
 - **[System Architecture](docs/ARCHITECTURE.md)**: Details on the 4-stage detection pipeline, safe deletion engine, and concurrency model.
 - **[Documentation Index](docs/INDEX.md)**: Links to implementation plans and verification walkthroughs.
-- **[CLAUDE.md](CLAUDE.md)**: Developer instructions and project conventions for Claude Code and automated agents.
+- **[AGENTS.md](AGENTS.md)**: Developer instructions and project conventions for Claude Code and other coding agents.
